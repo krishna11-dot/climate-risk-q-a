@@ -1,0 +1,53 @@
+{
+  "hazards": ["flood", "heat", "drought"],
+  "variables": ["precipitation", "temperature", "soil_moisture"],
+  "scenarios": ["SSP1-2.6", "SSP2-4.5", "SSP5-8.5"],
+  "regions": [
+    "Global",
+    "South_Asia",
+    "Kerala",
+    "Mumbai",
+    "UK",
+    "London",
+    "Southeast_Asia",
+    "East_Africa",
+    "West_Africa"
+  ],
+  "datasets": ["CMIP6", "CORDEX", "UKCP18", "ERA5"],
+  "region_parents": {
+    "Kerala": "South_Asia",
+    "Mumbai": "South_Asia",
+    "South_Asia": "Global",
+    "London": "UK",
+    "UK": "Global",
+    "Southeast_Asia": "Global",
+    "East_Africa": "Global",
+    "West_Africa": "Global"
+  },
+  "hazard_variable_map": {
+    "flood": "precipitation",
+    "heat": "temperature",
+    "drought": "soil_moisture"
+  },
+  "scenario_adjacency": {
+    "SSP5-8.5": "SSP2-4.5",
+    "SSP2-4.5": "SSP1-2.6",
+    "SSP3-7.0": "SSP2-4.5"
+  },
+  "valid_combinations": [
+    {"hazard": "flood", "variable": "precipitation", "scenario": "SSP5-8.5", "region": "Kerala", "dataset": "ERA5"},
+    {"hazard": "flood", "variable": "precipitation", "scenario": "SSP5-8.5", "region": "Mumbai", "dataset": "CMIP6"},
+    {"hazard": "flood", "variable": "precipitation", "scenario": "SSP2-4.5", "region": "Mumbai", "dataset": "CMIP6"},
+    {"hazard": "flood", "variable": "precipitation", "scenario": "SSP5-8.5", "region": "South_Asia", "dataset": "CORDEX"},
+    {"hazard": "flood", "variable": "precipitation", "scenario": "SSP5-8.5", "region": "Global", "dataset": "CMIP6"},
+    {"hazard": "heat", "variable": "temperature", "scenario": "SSP5-8.5", "region": "London", "dataset": "UKCP18"},
+    {"hazard": "heat", "variable": "temperature", "scenario": "SSP2-4.5", "region": "UK", "dataset": "UKCP18"},
+    {"hazard": "heat", "variable": "temperature", "scenario": "SSP5-8.5", "region": "UK", "dataset": "UKCP18"},
+    {"hazard": "heat", "variable": "temperature", "scenario": "SSP5-8.5", "region": "Global", "dataset": "CMIP6"},
+    {"hazard": "heat", "variable": "temperature", "scenario": "SSP1-2.6", "region": "Global", "dataset": "ERA5"},
+    {"hazard": "drought", "variable": "soil_moisture", "scenario": "SSP5-8.5", "region": "East_Africa", "dataset": "CORDEX"},
+    {"hazard": "drought", "variable": "soil_moisture", "scenario": "SSP5-8.5", "region": "West_Africa", "dataset": "CORDEX"},
+    {"hazard": "drought", "variable": "soil_moisture", "scenario": "SSP2-4.5", "region": "Global", "dataset": "CMIP6"},
+    {"hazard": "flood", "variable": "precipitation", "scenario": "SSP5-8.5", "region": "Southeast_Asia", "dataset": "CORDEX"}
+  ]
+}

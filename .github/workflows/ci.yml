@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_DB: climate_risk
+          POSTGRES_USER: user
+          POSTGRES_PASSWORD: pass
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/climate_risk
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      LITELLM_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      AGENT_PAUSED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run migrations
+        run: |
+          psql "postgresql://user:pass@localhost:5432/climate_risk" -f db/migrations/001_create_chunks_table.sql
+        env:
+          PGPASSWORD: pass
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v
+
+      - name: Run red team suite
+        run: python evaluation/red_team_suite.py
+
+      - name: Run RAGAS offline evaluation
+        run: python evaluation/ragas_eval.py

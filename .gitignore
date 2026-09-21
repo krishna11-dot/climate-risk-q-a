@@ -1,0 +1,11 @@
+.env
+.venv/
+.venv-ragas/
+__pycache__/
+*.pyc
+audit/
+data/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+evaluation/eval_records.json
