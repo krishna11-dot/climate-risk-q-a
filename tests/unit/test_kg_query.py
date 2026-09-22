@@ -15,12 +15,17 @@ def test_exact_match_resolves_dataset() -> None:
 
 
 def test_parent_region_fallback() -> None:
-    # "flood" + "SSP5-8.5" has no direct London combination in schema,
-    # but South_Asia/Global does not cover London either; use a region
-    # with a defined parent that lacks its own exact combination instead.
+    # UK has no heat+SSP1-2.6 combination of its own (only SSP2-4.5 and
+    # SSP5-8.5), so this must climb to UK's parent, Global, which does
+    # have one. Asserting the exact fallback tier and resolved region
+    # (not just "found is True") is the point: a prior version of this
+    # test accepted either "exact" or "parent_region", which passed
+    # regardless of whether the fallback logic ran at all.
     result = lookup("heat", "UK", "SSP1-2.6")
     assert result.found is True
-    assert result.fallback_used in ("exact", "parent_region")
+    assert result.fallback_used == "parent_region"
+    assert result.region == "Global"
+    assert result.dataset == "ERA5"
 
 
 def test_adjacent_scenario_fallback() -> None:

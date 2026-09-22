@@ -6,7 +6,11 @@ from __future__ import annotations
 
 import pytest
 
-from agents.analysis_agent import _resolve_netcdf_path, _run_generated_code, run_analysis_agent
+from agents.analysis_agent import (
+    _resolve_netcdf_path,
+    _run_generated_code,
+    run_analysis_agent,
+)
 from graph.state import ClimateRiskState
 
 

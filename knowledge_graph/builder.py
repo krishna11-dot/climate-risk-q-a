@@ -70,6 +70,18 @@ def build_knowledge_graph(schema_path: str | None = None) -> nx.DiGraph:
             f"scenario:{scenario}", f"scenario:{adjacent}", relation="adjacent_to"
         )
 
+    # The dataset for a (scenario, region) pair is stored as data on the
+    # scenario->region edge itself, not as a separate region->dataset
+    # edge. A region can be reached under multiple scenarios with
+    # different datasets (e.g. Global: CMIP6 under SSP5-8.5, ERA5 under
+    # SSP1-2.6) — a plain region->dataset edge would merge those into one
+    # node with two outgoing edges, and a lookup would arbitrarily return
+    # whichever was added first regardless of which scenario asked. This
+    # was a real bug, caught by tests/unit/test_kg_query.py once that
+    # test's assertion was tightened to check the specific resolved
+    # dataset instead of just "found is True".
+    scenario_region_dataset: dict[tuple[str, str], str] = {}
+
     for combo in schema["valid_combinations"]:
         h, v, s, r, d = (
             combo["hazard"],
@@ -80,8 +92,21 @@ def build_knowledge_graph(schema_path: str | None = None) -> nx.DiGraph:
         )
         graph.add_edge(f"hazard:{h}", f"variable:{v}", relation="maps_to")
         graph.add_edge(f"variable:{v}", f"scenario:{s}", relation="available_under")
-        graph.add_edge(f"scenario:{s}", f"region:{r}", relation="covers_region")
-        graph.add_edge(f"region:{r}", f"dataset:{d}", relation="sourced_from")
+
+        existing = scenario_region_dataset.get((s, r))
+        if existing is not None and existing != d:
+            raise ValueError(
+                f"schema.json is ambiguous: scenario {s!r} + region {r!r} "
+                f"maps to both dataset {existing!r} and {d!r} across "
+                "different valid_combinations entries. A (scenario, region) "
+                "pair must resolve to exactly one dataset — the graph has "
+                "no way to disambiguate further, so this must be fixed in "
+                "schema.json, not silently picked one way at query time."
+            )
+        scenario_region_dataset[(s, r)] = d
+        graph.add_edge(
+            f"scenario:{s}", f"region:{r}", relation="covers_region", dataset=d
+        )
 
     return graph
 

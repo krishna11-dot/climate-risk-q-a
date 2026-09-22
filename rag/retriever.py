@@ -10,8 +10,7 @@ architectural decision rather than a tradeoff.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from functools import lru_cache
+from dataclasses import dataclass
 from typing import Any
 
 from rank_bm25 import BM25Okapi

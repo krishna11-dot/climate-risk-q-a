@@ -15,6 +15,7 @@ from graph.workflow import run_pipeline
 from observability.audit_logger import export_audit_report, write_audit_record
 from observability.tracer import configure_langsmith
 
+
 class QueryRequest(BaseModel):
     """Request body for POST /query."""
 

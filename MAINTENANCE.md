@@ -131,46 +131,71 @@ assertion is worded the way it is — so a future reader doesn't
 
 Listed honestly, roughly by importance.
 
-### 1. The knowledge graph was edited to match one laptop *(needs a decision)*
+### 1. ~~The knowledge graph was edited to match one laptop~~ — decision made: leave it, documented
 
 To make a Kerala query work, we changed the knowledge graph so Kerala
 flood risk points at **ERA5** — because that's the file that happened to
 be downloaded. But ERA5 is *historical* data. It has no future emissions
 scenarios at all, so the entry `{flood, SSP5-8.5, Kerala, ERA5}` is
-scientifically wrong on its face.
+scientifically imprecise on its face (the `SSP5-8.5` label on that entry
+doesn't mean the returned data reflects that scenario — it's real
+historical data, labelled with a scenario tag that doesn't strictly
+apply to it).
 
-The deeper problem: the knowledge graph is supposed to hold *scientific
-truth*, and it's what the anti-hallucination check trusts. It now also
-holds "what's on this developer's disk," and you can't tell the two
-apart by looking.
+**Decision (2026-09-21):** keep it as-is rather than building a
+substitution-layer fix — ERA5 is real, verified data, and the
+alternative (removing Kerala entirely until real scenario data exists)
+loses a working, demonstrated capability for a scientific nuance that
+doesn't come up unless someone is comparing Kerala directly against a
+scenario-modelled region. The mitigation is documentation, not code: the
+data status table in `README.md` and `docs/business-problem-and-
+alignment.md` both call out that Kerala answers are historical-baseline,
+not future-scenario projections. **Not done, and now explicitly
+deferred rather than silently dropped:** nothing in the answer text
+itself or the audit record currently repeats this caveat live, so a user
+who only reads one answer (not the README) has no in-context signal
+that Kerala's numbers aren't scenario-projected. If Kerala usage grows,
+that's the next real gap to close.
 
-**Suggested direction:** put the correct science back in the graph, and
-add a separate substitution layer (e.g. `data_availability.json`) saying
-"the ideal dataset isn't available locally, here's what was used
-instead" — recorded visibly in the audit trail rather than hidden inside
-the graph.
-
-### 2. Generated code runs with your API keys in its environment
+### 2. ~~Generated code runs with your API keys in its environment~~ — fixed 2026-09-22
 
 The analysis agent writes Python and runs it in a subprocess. That
-subprocess inherits the parent's environment — including `GROQ_API_KEY`,
-`LANGSMITH_API_KEY`, and the database URL with its password.
+subprocess inherited the parent's environment — including
+`GROQ_API_KEY`, `LANGSMITH_API_KEY`, and the database URL with its
+password — with nothing stopping generated code from reading them.
 
-There's a timeout, so it can't hang forever. But nothing stops it
-reading those keys. **Cheap fix:** pass an explicit minimal `env=` to
-`subprocess.run`. Also worth softening the docstring, which currently
-claims protection against "malicious" code that isn't actually there.
+**Fixed:** `agents/analysis_agent.py` now builds an explicit minimal
+`env=` (`_minimal_subprocess_env()`) from a small allowlist of OS-level
+variables (`PATH`, `SystemRoot`, `TEMP`, etc.) and passes it to
+`subprocess.run` — no project secrets reach the subprocess at all.
+Verified this doesn't break real execution: matplotlib chart generation
+(the actual thing the analysis agent produces) was smoke-tested under
+the restricted environment and produced a real 29KB PNG in ~20s, same as
+under the full environment.
 
-### 3. The faithfulness score isn't a faithfulness score
+### 3. ~~The faithfulness score isn't a faithfulness score~~ — fixed 2026-09-22
 
 `_estimate_faithfulness()` never reads the answer. It returns one of a
 few fixed values based on which pipeline stages produced output. That
-number is then written to the audit record labelled `faithfulness_score`
-— where a regulator would reasonably read it as a measured quantity.
+number was written to the audit record labelled `faithfulness_score` —
+where a regulator would reasonably read it as a measured quantity — and
+`export_audit_report()`, the actual regulator-facing export function,
+had no way to show otherwise.
 
-**Options:** rename it honestly (`evidence_coverage_proxy`) and add
-`faithfulness_measured: false` to the record, or finish wiring the real
-RAGAS evaluation (see item 5).
+**Fixed:** added a `faithfulness_measured` boolean column
+(`db/migrations/002_add_faithfulness_measured.sql`, defaults to
+`FALSE`), wired through `db/models.py`, `agents/supervisor.py`'s audit
+record, and both the write and export paths in
+`observability/audit_logger.py`, so `export_audit_report()` now
+explicitly tells you whether a given record's faithfulness number is a
+real RAGAS measurement or the online proxy — every record today is the
+latter, honestly labelled as such. **Note:** this migration needs to be
+applied to any already-running database (`docker-compose`'s
+`docker-entrypoint-initdb.d` only runs on first volume init, so an
+existing local Postgres volume won't pick it up automatically) —
+CI now applies all files under `db/migrations/` in order rather than
+hardcoding just the first one, which was itself a latent bug this fix
+exposed.
 
 ### 4. The linter never runs
 
@@ -179,11 +204,7 @@ config and every `# noqa` comment are decorative. It would have caught
 two unused imports sitting in `rag/retriever.py` right now. One CI step
 fixes this.
 
-### 5. RAGAS evaluation silently falls back
-
-`evaluation/ragas_eval.py` tries the real RAGAS library, fails, and
-quietly substitutes the crude internal proxy — so the scores reported
-aren't what they claim to be. Related to item 3.
+### 5. ~~RAGAS evaluation silently falls back~~ — fixed, see Round 2
 
 ### 6. Smaller items
 
@@ -201,6 +222,94 @@ aren't what they claim to be. Related to item 3.
 - `scenario_adjacency` in `schema.json` references `SSP3-7.0`, which
   isn't in the scenario list — so that fallback path is unreachable
   through normal use.
+
+---
+
+## Round 2 — 2026-09-21
+
+### RAGAS fixed for real, and it found two more bugs on the way
+
+The old `evaluation/ragas_eval.py` (backlog item 5) tried to import the
+real `ragas` library in the same venv as production and silently fell
+back to a crude proxy when that failed — which it always did, since
+`ragas`'s dependencies conflict with `langgraph`/`litellm`. Fix: `ragas`
+now lives in its own venv (`.venv-ragas`, pinned in
+`requirements-ragas.txt`), with a two-phase flow —
+`evaluation/generate_eval_records.py` (main venv, real pipeline) writes
+records, `evaluation/score_eval_records.py` (isolated venv) scores them
+with a genuine LLM judge built on the project's existing Groq/LiteLLM
+setup. `evaluation/ragas_eval.py` itself has been deleted. CI now runs
+this as a separate `ragas-score` job.
+
+Getting there surfaced two real, unrelated bugs, both now fixed:
+
+1. **Every LLM call in the entire pipeline was silently failing.**
+   Groq renamed the default model (`qwen/qwen3.6-27b` → `qwen/qwen3.8-27b`)
+   sometime after this project was last fully exercised, and the
+   fallback model (OpenRouter) has no API key configured. The
+   crash-prevention fix from Round 1 (`call_llm` returning `("", 0.0)`
+   on a fallback failure instead of raising) was doing its job of not
+   crashing — but it meant every query was quietly returning a blank
+   answer, with no visible error unless you went and read the logs by
+   hand. Fixed by updating `config.py`'s model defaults. **Not yet
+   fixed:** there's still no alerting that distinguishes "both models
+   failed" from a normal "insufficient grounding" refusal — they look
+   identical in the audit trail today.
+2. **The RAGAS judge's default `max_tokens` (1024) was too small** for
+   faithfulness's claim-extraction JSON against real multi-chunk
+   contexts, truncating mid-generation and silently scoring as `nan`
+   rather than a real failure. Fixed by raising it to 4096 in
+   `score_eval_records.py`.
+
+The real scores that came out the other end (0.778 faithfulness, 0.473
+answer relevancy, both below the 0.80 bar; context precision is
+currently meaningless — see README) are the first genuine, non-proxy
+quality numbers this project has ever produced. They're mediocre, not
+broken — a real finding, not a bug in the measurement.
+
+---
+
+## Round 3 — 2026-09-21 (same day, continued)
+
+### Turning the recurring bug into a fast check — done, correcting an earlier wrong claim
+
+Backlog item "turn recurring test patterns into lint rules" is now done,
+though not the way `docs/maintenance-round-1-opus5.md` originally
+described it. That doc claimed "ruff supports some custom rules" — that
+was wrong; ruff has no plugin system for project-specific rules (it's a
+single compiled Rust binary with a fixed rule set). The actual fix:
+`tools/check_shared_concurrent_state.py`, a standalone AST-based script
+that catches the exact shape of bug #2 above (the same mutable object
+handed to two or more concurrently-scheduled tasks without a copy) —
+anywhere it recurs in the project, not just the one spot already fixed.
+It runs as its own CI step, same spirit as a linter (fast, no test
+execution) even though it isn't literally one. Covered by
+`tests/unit/test_check_shared_concurrent_state.py`.
+
+Also, fixing the vacuous `test_parent_region_fallback` test (the other
+open backlog item) immediately surfaced a real, previously-unknown bug:
+the knowledge graph's region->dataset edges weren't scenario-specific,
+so a region reachable under multiple scenarios with different datasets
+could resolve to the wrong one. Fixed in `knowledge_graph/builder.py`
+and `knowledge_graph/query.py`, with a build-time validation added so
+`schema.json` can't be authored ambiguously again without an immediate
+error. This is exactly the pattern this whole log keeps returning to:
+tightening a test that only *looked* like it checked something found a
+real bug, on the first try.
+
+### Ruff itself had never actually run, either
+
+Separately from the custom check above: `pyproject.toml` had configured
+`ruff` since the start, but it had never once been installed or run —
+not a CI gap, a "the tool doesn't exist in this environment" gap. Fixed:
+installed it, ran it for the first time, and fixed all 24 real findings
+by hand rather than blind `--fix` (confirmed each one was real before
+touching it — e.g. the `B023` closure warnings in `rag/chunker.py`
+turned out to be false positives, verified by checking the closure is
+never stored past the loop iteration it's defined in). Also found and
+removed `ragas`/`datasets` sitting in `requirements.txt`, contradicting
+the entire point of the `.venv-ragas` isolation from Round 2. `ruff
+check .` now runs as its own CI step.
 
 ---
 

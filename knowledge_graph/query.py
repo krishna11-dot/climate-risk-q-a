@@ -104,16 +104,14 @@ def _resolve_dataset(
         return variable, None, nodes
     nodes.append(region_node)
 
-    dataset_node = None
-    for _, target, data in graph.out_edges(region_node, data=True):
-        if data.get("relation") == "sourced_from":
-            dataset_node = target
-            break
-
-    if dataset_node is None:
+    # Dataset is stored as data on the scenario->region edge itself (see
+    # builder.py), not as a separate region->dataset edge — a region can
+    # be reached under multiple scenarios with different datasets, and a
+    # generic region->dataset edge can't disambiguate which one applies.
+    dataset_name = graph.get_edge_data(scenario_node, region_node).get("dataset")
+    if dataset_name is None:
         return variable, None, nodes
-    nodes.append(dataset_node)
-    dataset_name = graph.nodes[dataset_node]["name"]
+    nodes.append(f"dataset:{dataset_name}")
     return variable, dataset_name, nodes
 
 

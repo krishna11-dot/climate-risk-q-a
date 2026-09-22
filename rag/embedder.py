@@ -6,8 +6,6 @@ free-tier stack fully free for embedding-heavy ingestion workloads.
 
 from __future__ import annotations
 
-from functools import lru_cache
-
 import config
 
 _model = None

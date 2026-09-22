@@ -142,7 +142,6 @@ def chunk_document(
 
     for page_num, (page_text, heading) in enumerate(zip(pages, headings), start=1):
         tables = detect_tables(page_text)
-        table_spans = {(s, e) for s, e, _ in tables}
 
         # Extract non-table text between/around tables, preserving order.
         cursor = 0
@@ -158,17 +157,23 @@ def chunk_document(
         buffer_sentences: list[str] = []
         buffer_tokens = 0
 
+        # Ruff (B023) flags the closure below as capturing loop variables
+        # (heading, page_num) by reference, which is unsafe if a closure
+        # outlives the iteration it's defined in. This one doesn't: it's
+        # redefined fresh every outer-loop iteration and only ever called
+        # within that same iteration (below, never stored or deferred), so
+        # heading/page_num are always current when it runs.
         def flush_buffer() -> None:
             nonlocal buffer_sentences, buffer_tokens, chunk_index
             if not buffer_sentences:
                 return
             body = " ".join(buffer_sentences)
-            content = f"[Section: {heading}]\n{body}" if heading else body
+            content = f"[Section: {heading}]\n{body}" if heading else body  # noqa: B023
             chunks.append(
                 Chunk(
                     content=content,
-                    section=heading,
-                    page_number=page_num,
+                    section=heading,  # noqa: B023
+                    page_number=page_num,  # noqa: B023
                     chunk_index=chunk_index,
                     is_table=False,
                 )

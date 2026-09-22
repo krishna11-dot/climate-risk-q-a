@@ -10,8 +10,8 @@ can never hang or compromise the main process.
 from __future__ import annotations
 
 import asyncio
-import base64
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -21,6 +21,36 @@ import config
 from agents import call_llm
 from graph.state import ClimateRiskState
 from observability.tracer import traceable
+
+# Generated code has no legitimate need for this project's secrets
+# (GROQ_API_KEY, LANGSMITH_API_KEY, DATABASE_URL, ...), but
+# subprocess.run inherits the full parent environment by default —
+# an unnecessary credential exposure if generated code were ever
+# malicious or a code-gen bug produced something unexpected. Only the
+# OS-level variables Python/xarray/matplotlib/dask genuinely need to
+# run are allowed through.
+_SUBPROCESS_ENV_ALLOWLIST = (
+    "PATH",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "HOME",
+    "COMSPEC",
+    "NUMBER_OF_PROCESSORS",
+    "PROCESSOR_ARCHITECTURE",
+)
+
+
+def _minimal_subprocess_env() -> dict[str, str]:
+    """Builds a minimal environment for the generated-code subprocess.
+
+    Returns:
+        A dict containing only the allowlisted OS-level variables
+        present in the current environment — safe to pass to
+        subprocess.run(..., env=...) without leaking API keys/secrets.
+    """
+    return {k: v for k, v in os.environ.items() if k in _SUBPROCESS_ENV_ALLOWLIST}
 
 _CODE_GEN_PROMPT = """Generate Python code that analyses a climate NetCDF
 dataset using xarray with dask lazy chunking and produces:
@@ -164,6 +194,8 @@ def _run_generated_code(code: str, netcdf_path: str) -> dict:
             capture_output=True,
             text=True,
             timeout=config.ANALYSIS_TIMEOUT,
+            check=False,  # returncode is checked explicitly below
+            env=_minimal_subprocess_env(),
         )
     except subprocess.TimeoutExpired:
         return {"success": False, "error": f"Analysis code timed out after {config.ANALYSIS_TIMEOUT}s"}

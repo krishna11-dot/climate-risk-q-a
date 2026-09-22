@@ -19,7 +19,6 @@ from graph.state import ClimateRiskState
 from guardrails.output_filter import verify_and_filter_datasets
 from knowledge_graph.builder import load_schema
 
-
 # ---------------------------------------------------------------------------
 # Bug 1: the kill switch was a module-level snapshot taken at import time,
 # so flipping config.AGENT_PAUSED at runtime (the documented incident

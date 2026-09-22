@@ -170,7 +170,9 @@ def _estimate_faithfulness(state: ClimateRiskState) -> float:
     """Estimates a faithfulness/groundedness score for the draft answer.
 
     A full RAGAS faithfulness call is available offline via
-    evaluation/ragas_eval.py; for the online per-query path this uses a
+    evaluation/generate_eval_records.py + evaluation/score_eval_records.py
+    (the latter runs in the isolated .venv-ragas); for the online
+    per-query path this uses a
     fast proxy — presence of grounded evidence — to avoid adding a
     second LLM round-trip on every request while still enforcing the
     threshold honestly (no retrieved evidence => low score).
@@ -315,7 +317,18 @@ async def run_supervisor(state: ClimateRiskState) -> ClimateRiskState:
             r for r in [filter_result.blocked_reason] if r
         ],
         "final_answer": state.final_answer,
+        # "faithfulness_score" is fed to the DB's `faithfulness` column
+        # (see observability/audit_logger.py), which evaluation/
+        # online_monitor.py's drift detection depends on being populated —
+        # so it can't simply be left null. But this number comes from
+        # _estimate_faithfulness()'s fast proxy (presence of grounded
+        # evidence), not the real LLM-judged RAGAS faithfulness metric
+        # computed offline in evaluation/score_eval_records.py. This flag
+        # makes that distinction explicit on every record, so a regulator
+        # (or anyone reading one via export_audit_report) doesn't mistake
+        # it for a measured quantity.
         "faithfulness_score": faithfulness,
+        "faithfulness_measured": False,
         "groundedness_score": faithfulness,
         "litellm_cost_usd": state.litellm_cost_usd,
         "explainable_to_regulator": True,

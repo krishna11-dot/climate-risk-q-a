@@ -71,7 +71,11 @@ async def generate(dataset_path: str = "evaluation/test_dataset.json") -> None:
     Args:
         dataset_path: Path to the JSON test dataset.
     """
-    with Path(dataset_path).open("r", encoding="utf-8") as f:
+    # Blocking file I/O in an async function normally risks stalling other
+    # tasks sharing the event loop, but this script is a one-shot batch
+    # job with nothing else running concurrently on it, so that concern
+    # doesn't apply here.
+    with Path(dataset_path).open("r", encoding="utf-8") as f:  # noqa: ASYNC230
         items = json.load(f)
 
     # Sequential, not gathered: Groq's free tier enforces a shared

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +30,11 @@ async def write_audit_record(record: dict[str, Any]) -> None:
             user_query, tier_assigned, router_decision, kg_nodes,
             datasets_cited, datasets_verified_in_kg, rag_chunks_used,
             analysis_code_run, guardrails_triggered, final_answer,
-            faithfulness_score, groundedness_score, litellm_cost_usd,
-            explainable_to_regulator, context_compacted.
+            faithfulness_score, faithfulness_measured, groundedness_score,
+            litellm_cost_usd, explainable_to_regulator, context_compacted.
     """
     record = {**record}
-    record.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
+    record.setdefault("timestamp", datetime.now(UTC).isoformat())
 
     await _write_to_postgres(record)
     _append_to_jsonl(record)
@@ -58,6 +58,7 @@ async def _write_to_postgres(record: dict[str, Any]) -> None:
                 rag_chunks=record.get("rag_chunks_used") or record.get("rag_chunks"),
                 final_answer=record.get("final_answer"),
                 faithfulness=record.get("faithfulness_score"),
+                faithfulness_measured=record.get("faithfulness_measured", False),
                 groundedness=record.get("groundedness_score"),
                 explainable=record.get("explainable_to_regulator"),
                 compound_hazard=record.get("compound_hazard", False),
@@ -65,7 +66,7 @@ async def _write_to_postgres(record: dict[str, Any]) -> None:
             )
             session.add(audit_row)
             await session.commit()
-    except Exception:  # noqa: BLE001 - audit writes must never crash the pipeline
+    except Exception:
         logger.exception("Failed to write audit record to PostgreSQL; JSONL backup retained.")
 
 
@@ -113,6 +114,7 @@ async def export_audit_report(query_id: str) -> dict[str, Any] | None:
         "rag_chunks": row.rag_chunks,
         "final_answer": row.final_answer,
         "faithfulness": row.faithfulness,
+        "faithfulness_measured": row.faithfulness_measured,
         "groundedness": row.groundedness,
         "explainable": row.explainable,
         "compound_hazard": row.compound_hazard,

@@ -43,12 +43,12 @@ load_dotenv()
 import instructor
 from datasets import Dataset
 from litellm import acompletion
-from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed
 from ragas import evaluate
 from ragas.embeddings.base import BaseRagasEmbeddings
 from ragas.llms import llm_factory
 from ragas.metrics import answer_relevancy, context_precision, faithfulness
 from ragas.run_config import RunConfig
+from tenacity import AsyncRetrying, stop_after_attempt, wait_fixed
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

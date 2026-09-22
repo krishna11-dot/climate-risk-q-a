@@ -25,16 +25,20 @@ def test_audit_log_table_columns() -> None:
     expected = {
         "id", "query_id", "timestamp", "user_query", "tier_assigned",
         "router_decision", "kg_nodes", "datasets_cited", "rag_chunks",
-        "final_answer", "faithfulness", "groundedness", "explainable",
-        "compound_hazard",
+        "final_answer", "faithfulness", "faithfulness_measured",
+        "groundedness", "explainable", "compound_hazard",
     }
     assert expected.issubset(columns)
 
 
-def test_climate_chunk_unique_constraint_columns() -> None:
-    unique_indexes = [idx for idx in ClimateChunk.__table__.indexes if idx.unique]
-    # The unique index is defined at the migration SQL level; here we
-    # just assert the three columns it covers exist on the model.
+def test_climate_chunk_has_dedup_key_columns() -> None:
+    # The unique constraint itself is defined at the migration SQL level
+    # (db/migrations/001_create_chunks_table.sql), not on the SQLAlchemy
+    # model, so it can't be verified from here without a live database —
+    # this only checks that the three columns it's built from exist on
+    # the model. A prior version of this test computed
+    # `ClimateChunk.__table__.indexes` and never used the result, which
+    # made it look like it verified the constraint when it didn't.
     assert {"source_doc", "page_number", "chunk_index"}.issubset(
         {c.name for c in ClimateChunk.__table__.columns}
     )

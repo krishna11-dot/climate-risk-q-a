@@ -9,7 +9,7 @@ dual-write audit trail (the other half is the append-only JSONL backup).
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
@@ -47,7 +47,7 @@ class ClimateChunk(Base):
     region: Mapped[str | None] = mapped_column(String, nullable=True)
     version: Mapped[str | None] = mapped_column(String, nullable=True)
     ingested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
 
@@ -64,7 +64,7 @@ class AuditLog(Base):
     query_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         index=True,
     )
     user_query: Mapped[str] = mapped_column(Text, nullable=False)
@@ -75,6 +75,11 @@ class AuditLog(Base):
     rag_chunks: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     faithfulness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # True only for a real LLM-judged RAGAS faithfulness score; the online
+    # per-query path currently always writes False, since `faithfulness`
+    # is populated by a fast proxy there, not the real metric — see
+    # agents/supervisor.py's audit_record comment for the full reasoning.
+    faithfulness_measured: Mapped[bool] = mapped_column(Boolean, default=False)
     groundedness: Mapped[float | None] = mapped_column(Float, nullable=True)
     explainable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     compound_hazard: Mapped[bool] = mapped_column(Boolean, default=False)

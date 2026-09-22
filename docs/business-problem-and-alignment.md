@@ -12,19 +12,20 @@ Every jargon word is explained the first time it's used, in **bold**.
 
 ## Part 1 — The business problem, in plain terms
 
-Imagine three different people:
+Imagine a **city planner in the UK** deciding whether a new neighbourhood
+needs flood or heat defences. They need a trustworthy answer to "how
+much worse is this specific climate risk going to get, and how
+confident are we?" They can't afford to hire a climate scientist for
+every single decision — that's slow and expensive. So the tempting
+shortcut is: ask a general-purpose AI chatbot instead.
 
-- A **city planner in Chennai** deciding whether a new neighbourhood
-  needs flood defences.
-- An **insurance firm in Singapore** pricing a policy on a coastal
-  property.
-- An **NGO in Nairobi** deciding where to focus a drought relief budget.
-
-All three need the same thing: a trustworthy answer to "how much worse
-is this specific climate risk going to get, and how confident are we?"
-None of them can afford to hire a climate scientist for every single
-decision — that's slow and expensive. So the tempting shortcut is: ask
-a general-purpose AI chatbot instead.
+(The UK is used here deliberately, not as a random example: it's the
+one region this project has actually proven end-to-end with real
+government climate reports — see Part 3 below. The same problem exists
+for an insurance firm in Singapore, an NGO in Nairobi, or a planner in
+Chennai, and expanding to those is the target — but today, asking this
+system about any of them correctly returns "insufficient grounding,"
+not an answer. Don't read those as supported today.)
 
 **Here's the problem with that shortcut.** A generic AI chatbot will
 give you a confident-sounding answer even when it's making things up —
@@ -95,9 +96,15 @@ Checked via: an automated test suite (45 tests, all passing) and a
 break the safety rules (e.g. "ignore your instructions," "what does
 SuperClimate9000 say about flood risk," "should I buy insurance for my
 property") — **all 10 are currently blocked or handled correctly.**
-There's also supposed to be a scoring system called **RAGAS** that
-grades answer quality automatically — this part is not fully working
-yet (see "What's not done yet" below).
+There's also a scoring system called **RAGAS** that grades answer
+quality automatically using an AI judge — this is now genuinely working
+(it wasn't, when this document was first written), and it caught
+something real: on the only two questions with real evidence to check
+(UK questions), the answers were faithful to the source material
+(0.78 out of a required 0.80) but not sharply on-topic (0.47 out of
+0.80) — a real, moderate quality gap now visible for the first time,
+not a placeholder number. See `README.md`'s "Real RAGAS evaluation"
+section for the full numbers.
 
 **Q2 — "Can you explain any specific past answer to a regulator on
 demand?"**
@@ -159,27 +166,30 @@ has been proven, live, more than once.
 
 ## Part 4 — What's not done yet (said plainly, not buried)
 
-- **The automatic quality-scoring library (RAGAS)** doesn't actually
-  run yet — it silently falls back to a much simpler internal estimate
-  instead. The fallback is *labelled* as an estimate, but it's still
-  not the real thing the specification asked for.
+- **The automatic quality-scoring library (RAGAS) now genuinely runs**
+  — this used to be a gap, it isn't anymore. It lives in its own
+  isolated environment because its dependencies conflict with the main
+  production stack (see `README.md`), and its current real scores show
+  a genuine, moderate quality gap (0.78 faithfulness, 0.47 relevancy,
+  both below the 0.80 bar) — not a placeholder anymore, but not passing
+  yet either.
 - **Turning a JSON audit record into an official PDF for regulatory
   filing** — not built yet, exactly as the original spec marked it as
   a future step.
 - **Computing a range of uncertainty** (e.g. "somewhere between X and
   Y, with Z being most likely") instead of a single number — not built
   yet, also marked as a future step in the original spec.
-- **Automated code-quality checking (a linter) is configured but never
-  actually runs** as part of testing — so it isn't currently catching
-  anything, even though the settings for it exist.
-- **This code has never been through the official automated
-  testing pipeline** (**CI/CD** — a system that automatically re-runs
-  all the tests every time the code changes, usually connected to a
-  code-hosting site like GitHub) because the project isn't yet stored
-  in **version control** (a system that keeps a permanent history of
-  every change, usually called **git**) at all. Everything so far has
-  been tested by hand, one command at a time. This is a significant
-  gap for a project whose whole pitch is "auditable and traceable."
+- **Automated code-quality checking (a linter) is configured but still
+  never actually runs** as part of testing — so it isn't currently
+  catching anything, even though the settings for it exist.
+- **The code is now in version control and pushed to GitHub**
+  (**CI/CD** — a system that automatically re-runs all the tests every
+  time the code changes — is wired up in `.github/workflows/ci.yml`),
+  closing what used to be the biggest gap here. What's still open: the
+  repository's `GROQ_API_KEY` secret hasn't been configured yet, so the
+  first real push-triggered CI run will fail immediately on missing
+  credentials rather than testing anything — that's a one-time GitHub
+  settings step, not a code change.
 - **One design decision needs your input, not more coding**: to make a
   Kerala question work with real data, the rulebook (knowledge graph)
   was edited to point Kerala at a historical weather dataset that
@@ -202,9 +212,10 @@ a way that mattered, and has since been fixed and locked in with
 automated tests.
 
 **What's the biggest real gap between "built" and "regulator-ready"?**
-Two things: the automatic quality-scoring tool isn't wired up for real
-(it's using a simplified stand-in), and the whole project has no
-version history yet, which undercuts the "auditable" pitch at the
-project-management level even though the answer-level audit trail
-itself works. Both are known, written down, and neither is a surprise
-buried in the code.
+Version control and real RAGAS scoring — the two gaps this document
+used to flag here — are both closed now. What's left: the automatic
+quality-scoring tool's actual numbers (0.78 faithfulness, 0.47
+relevancy) are honestly mediocre, not failing outright but below the
+0.80 bar the spec set, so answer quality itself — not the measurement
+of it — is now the real open item. That's known, written down, and not
+a surprise buried in the code.

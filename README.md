@@ -23,6 +23,10 @@ trail exportable for regulatory review.
   project against a standard "build a real AI system" learning path and
   a standard AI-system metrics framework: what's genuinely done,
   verified live, versus configured-but-unproven versus not attempted.
+- **`docs/deslopify-in-plain-language.md`** — what a maintenance round
+  ("deslopify") is and what each of the three rounds on this project
+  actually found and fixed, explained for a general audience with no
+  unexplained jargon.
 
 ## Setup order
 
@@ -35,7 +39,10 @@ trail exportable for regulatory review.
      before running the analysis agent against real data.
 3. `docker-compose up app` — starts the FastAPI service.
 4. `streamlit run streamlit_app.py` — starts the frontend.
-5. `python evaluation/ragas_eval.py` — offline RAGAS evaluation.
+5. Offline RAGAS evaluation (two phases, two separate venvs — see
+   "Real RAGAS evaluation" below for why):
+   `./.venv/Scripts/python.exe evaluation/generate_eval_records.py`
+   then `./.venv-ragas/Scripts/python.exe evaluation/score_eval_records.py`.
 6. `python evaluation/red_team_suite.py` — adversarial guardrail suite.
 
 Copy `.env.example` to `.env` and fill in `GROQ_API_KEY` and
@@ -108,11 +115,16 @@ fails the build (exit code 1) on any regression.
 ## Three regulatory questions, answered
 
 **Q1: Does it behave correctly before go-live?**
-`evaluation/ragas_eval.py` enforces RAGAS faithfulness/relevancy/
-precision ≥ 0.80 overall *and* per region segment (catching geographic
-bias an aggregate score would hide). `evaluation/red_team_suite.py`
-confirms all 10 adversarial cases are blocked as expected. Both run in
-CI on every push.
+`evaluation/generate_eval_records.py` (main venv) + `evaluation/
+score_eval_records.py` (isolated `.venv-ragas`) enforce RAGAS
+faithfulness/relevancy/precision ≥ 0.80 overall *and* per region segment
+(catching geographic bias an aggregate score would hide) — see "Real
+RAGAS evaluation" below for the actual current numbers, which are below
+threshold. `evaluation/red_team_suite.py` confirms all 10 adversarial
+cases are blocked as expected. Both run in CI on every push (RAGAS
+scoring runs as a separate CI job — see `.github/workflows/ci.yml` —
+because it needs its own dependency set, pinned in
+`requirements-ragas.txt`).
 
 **Q2: Is it explainable to a regulator?**
 Every query writes a full record via `observability/audit_logger.py` to
@@ -132,12 +144,38 @@ underperforms the UK). Alerts go to the named owner in
 `AGENT_PAUSED` kill switch, investigate LangSmith traces, fix, and
 re-evaluate before restarting. Nothing auto-adjusts.
 
+## Real RAGAS evaluation
+
+RAGAS's dependency chain (an older `langchain-community`) conflicts
+directly with the versions `langgraph`/`litellm` need in production, so
+it runs in its own venv (`.venv-ragas`, pinned in
+`requirements-ragas.txt`) in two phases: `generate_eval_records.py`
+(main venv, runs the real pipeline) writes `evaluation/eval_records.json`,
+then `score_eval_records.py` (`.venv-ragas`) scores it with genuine
+LLM-judged metrics — reusing the project's existing Groq/LiteLLM setup
+as the judge, no separate provider.
+
+Actual scores from the last real run against `evaluation/test_dataset.json`
+(10 questions; only 2 — London, UK — had any retrieved context, since
+those are the only regions with real ingested data; the other 8
+correctly returned "insufficient grounding" and are excluded from
+scoring):
+
+| Metric | Score | Threshold | Note |
+|---|---|---|---|
+| Faithfulness (overall) | 0.778 | 0.80 | London 1.0, UK 0.556 — the UK answer makes at least one claim its retrieved chunks don't fully support |
+| Answer relevancy | 0.473 | 0.80 | Genuinely mediocre — answers are faithful but not tightly on-topic |
+| Context precision | 0.0 | 0.80 | Not a real signal yet — needs a genuine reference answer per question; `test_dataset.json` only has placeholder `pass`/`fail` labels |
+
+Below threshold on two of three metrics — this is the system's real,
+current quality level, not a placeholder or a bug in the eval script.
+
 ## Data status (updated after real ingestion, see docs/business-problem-and-alignment.md)
 
 | Region | Real evidence loaded | Notes |
 |---|---|---|
 | UK | ✅ 4 UKCP18 PDFs, 517 chunks | RAG-grounded answers verified live |
-| Kerala | ✅ Real ERA5 precipitation data | Analysis agent verified against it |
+| Kerala | ✅ Real ERA5 precipitation data | Analysis agent verified against it. **Caveat:** ERA5 is historical reanalysis data, not a future-scenario projection — the knowledge graph's `SSP5-8.5` label on this entry is a scenario tag of convenience, not a claim that the returned numbers are scenario-modelled. See `MAINTENANCE.md` backlog item 1 |
 | Global | ✅ One real CMIP6 file | Analysis agent verified against it |
 | Everywhere else | ❌ No real data yet | Correctly returns "insufficient grounding" |
 
@@ -148,18 +186,24 @@ is a data-download task, not a code change.
 
 ## Known TODOs (see inline comments)
 
-- Compound hazard queries, e.g. "flood AND heat risk for Mumbai"
-  (`agents/supervisor.py`)
+- Compound hazard queries, e.g. "flood AND heat risk for the UK"
+  (`agents/supervisor.py`) — Mumbai isn't usable as this example since
+  it has no real ingested data yet (see Data status above)
 - Regulatory PDF export via reportlab (`observability/audit_logger.py`)
 - Uncertainty quantification across ensemble runs
   (`agents/analysis_agent.py`)
 - Named human alert owner (`config.py: ALERT_OWNER`)
-- Real RAGAS evaluation currently falls back to an internal proxy score
-  silently (`evaluation/ragas_eval.py`) — not the genuine LLM-judged
-  metric the design calls for
+- Real RAGAS evaluation works end-to-end now (see "Real RAGAS
+  evaluation" above), and CI runs it as a dedicated `ragas-score` job
+  using `requirements-ragas.txt` — but its actual scores are currently
+  below threshold (0.778/0.473/0.0 vs. 0.80), so CI will fail on this
+  step until answer quality improves, not because the eval itself is
+  broken
 - No `ruff` lint step in CI yet, despite `pyproject.toml` configuring it
-- Project has no git history yet, so `.github/workflows/ci.yml` has
-  never actually run
+- CI has never actually run against a real `GROQ_API_KEY` secret yet —
+  the repo now has git history and is pushed, but the GitHub Actions
+  secret still needs to be configured before a push will produce a
+  real (non-immediately-failing) CI run
 - Knowledge graph currently has one entry (Kerala → ERA5) that matches
   local disk contents rather than scientific reality — a design
   decision flagged for review in `docs/maintenance-round-1-opus5.md`
