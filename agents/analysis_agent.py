@@ -270,12 +270,20 @@ async def run_analysis_agent(state: ClimateRiskState) -> ClimateRiskState:
         data_vars=json.dumps(netcdf_metadata["data_vars"]),
         dims=json.dumps(netcdf_metadata["dims"]),
     )
-    code, cost = await call_llm(
+    code, cost, llm_unavailable = await call_llm(
         model=config.ANALYSIS_AGENT_MODEL,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=900,
     )
     state.litellm_cost_usd += cost
+    state.llm_unavailable = state.llm_unavailable or llm_unavailable
+    if llm_unavailable:
+        state.analysis_results = {
+            "success": False,
+            "error": "LLM unavailable: could not generate analysis code.",
+            "code_used": None,
+        }
+        return state
 
     code_block = code
     if "```" in code:

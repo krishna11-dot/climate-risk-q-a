@@ -81,6 +81,10 @@ class AuditLog(Base):
     # agents/supervisor.py's audit_record comment for the full reasoning.
     faithfulness_measured: Mapped[bool] = mapped_column(Boolean, default=False)
     groundedness: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # True when both the primary and fallback LLM calls failed for this
+    # query — an infrastructure outage, distinct from a correct
+    # "insufficient grounding" refusal. See ClimateRiskState.llm_unavailable.
+    llm_unavailable: Mapped[bool] = mapped_column(Boolean, default=False)
     explainable: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     compound_hazard: Mapped[bool] = mapped_column(Boolean, default=False)
     region: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -1,13 +1,22 @@
-"""Online production monitor: SQL-based faithfulness drift detection and
-per-region segment monitoring against the audit_log table.
+"""Online production monitor: SQL-based faithfulness drift detection,
+per-region segment monitoring, and LLM-outage detection against the
+audit_log table.
 
 Never auto-adjusts anything. Alerts the named ALERT_OWNER in config.py,
 who follows the documented escalation path (set AGENT_PAUSED, investigate
 LangSmith traces, fix, re-eval before restart).
+
+This module previously had no way to actually be run — no scheduler, no
+entrypoint — despite README.md's claim that it "runs every hour." Running
+it (`python evaluation/online_monitor.py`) now executes all three checks
+once; wiring that into an actual hourly schedule (cron, a cloud
+scheduler, etc.) is still a deployment step, not something this file can
+do by itself.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from sqlalchemy import text
@@ -60,6 +69,55 @@ async def check_recent_faithfulness_drift(window_hours: int = 1) -> dict:
     }
 
 
+async def check_llm_outage(window_minutes: int = 15) -> dict:
+    """Checks for any query in the recent window where both the primary
+    and fallback LLM calls failed — a real infrastructure outage, not a
+    normal "insufficient grounding" refusal (see graph/state.py's
+    llm_unavailable docstring for why the two must never be conflated).
+
+    Unlike the faithfulness drift check, this alerts on ANY occurrence
+    in the window rather than an average dropping below a threshold —
+    a total LLM failure should never happen silently even once, whereas
+    faithfulness naturally varies query to query.
+
+    Args:
+        window_minutes: Size of the trailing window to check, in minutes.
+
+    Returns:
+        Dict with n_failures, alert (bool), and window_minutes.
+    """
+    async with get_session() as session:
+        result = await session.execute(
+            text(
+                """
+                SELECT COUNT(*) AS n
+                FROM audit_log
+                WHERE timestamp > NOW() - make_interval(mins => :window_minutes)
+                  AND llm_unavailable IS TRUE
+                """
+            ),
+            {"window_minutes": window_minutes},
+        )
+        row = result.mappings().one()
+
+    n_failures = row["n"]
+    alert = n_failures > 0
+
+    if alert:
+        _fire_alert(
+            f"LLM outage detected: {n_failures} quer{'y' if n_failures == 1 else 'ies'} "
+            f"in the last {window_minutes} minutes had both the primary and "
+            f"fallback model calls fail. This is an infrastructure failure, "
+            f"not a normal refusal — investigate immediately."
+        )
+
+    return {
+        "n_failures": n_failures,
+        "alert": alert,
+        "window_minutes": window_minutes,
+    }
+
+
 async def check_segment_faithfulness() -> list[dict]:
     """Checks average faithfulness per region segment, catching
     geographic bias (e.g. South Asia underperforming vs UK) that an
@@ -108,3 +166,22 @@ def _fire_alert(message: str) -> None:
         message,
         owner["escalation_path"],
     )
+
+
+async def run_all_checks() -> None:
+    """Runs every monitoring check once and logs the results.
+
+    Intended to be invoked on a schedule (cron, a cloud scheduler, etc.)
+    — this function itself does not loop or sleep.
+    """
+    outage = await check_llm_outage()
+    drift = await check_recent_faithfulness_drift()
+    segments = await check_segment_faithfulness()
+    logger.info(
+        "Monitor run complete: outage=%s, drift=%s, underperforming_segments=%d",
+        outage, drift, len(segments),
+    )
+
+
+if __name__ == "__main__":
+    asyncio.run(run_all_checks())

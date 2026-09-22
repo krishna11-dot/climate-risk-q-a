@@ -1,12 +1,21 @@
 # Climate Risk Q&A Agent
 
 > **Governed climate risk agent — KG + SQL + pgvector — structurally
-> cannot hallucinate datasets, fully auditable, regulatory-grade.**
+> cannot hallucinate datasets, fully auditable.**
 
-A production-grade, enterprise-governed multi-agent system that answers
-climate risk questions with consultant-quality analysis, grounded by a
-knowledge graph, retrieved via hybrid search, and backed by a full audit
-trail exportable for regulatory review.
+A multi-agent system, designed to enterprise assurance patterns, that
+answers climate risk questions grounded by a knowledge graph, retrieved
+via hybrid search, and backed by a full audit trail exportable for
+regulatory review.
+
+**Enterprise-designed, not yet enterprise-ready.** The architecture
+follows the right patterns (four guardrail layers, tier authority, a
+knowledge-graph anti-hallucination gate, evals in CI), and the core
+grounding/refusal behavior is proven live with real data. But it hasn't
+been proven to work *at* that standard yet: no API authentication, real
+RAGAS scores are below their own 0.80 gate, it's never been load-tested,
+and it's had exactly one human-plus-AI review pass, not an external one.
+See "Known gaps" below for the specific, current list.
 
 ## Further reading
 
@@ -136,13 +145,20 @@ returns the full record on demand, and the KG traversal path is shown
 directly in the Streamlit UI.
 
 **Q3: Would we find out before the customer does?**
-`evaluation/online_monitor.py` runs SQL queries against `audit_log`
-every hour: an aggregate faithfulness drift check (alerts below 0.80)
-and a per-region `GROUP BY` segment check (alerts when e.g. South Asia
-underperforms the UK). Alerts go to the named owner in
-`config.ALERT_OWNER`, who follows a fixed escalation path — set the
-`AGENT_PAUSED` kill switch, investigate LangSmith traces, fix, and
-re-evaluate before restarting. Nothing auto-adjusts.
+`evaluation/online_monitor.py` runs three SQL-based checks against
+`audit_log`: an LLM-outage check (alerts on even one query where both
+the primary and fallback model failed — distinct from a normal
+"insufficient grounding" refusal, see `MAINTENANCE.md` Round 4), an
+aggregate faithfulness drift check (alerts below 0.80), and a per-region
+`GROUP BY` segment check (alerts when e.g. South Asia underperforms the
+UK). Alerts go to the named owner in `config.ALERT_OWNER`, who follows a
+fixed escalation path — set the `AGENT_PAUSED` kill switch, investigate
+LangSmith traces, fix, and re-evaluate before restarting. Nothing
+auto-adjusts. **Honest caveat:** running it (`python
+evaluation/online_monitor.py`) executes all three checks once; nothing
+currently schedules that to happen automatically on any cadence — that's
+a deployment step (cron, a cloud scheduler, etc.), not something the
+script does by itself yet.
 
 ## Real RAGAS evaluation
 
@@ -184,26 +200,31 @@ CORDEX has no local data at all. `config.CMIP6_NETCDF_DIR`,
 `config.UKCP18_PDF_DIR` are all wired up — adding more regions/datasets
 is a data-download task, not a code change.
 
-## Known TODOs (see inline comments)
+## Known gaps toward production/enterprise-ready
 
-- Compound hazard queries, e.g. "flood AND heat risk for the UK"
-  (`agents/supervisor.py`) — Mumbai isn't usable as this example since
-  it has no real ingested data yet (see Data status above)
-- Regulatory PDF export via reportlab (`observability/audit_logger.py`)
-- Uncertainty quantification across ensemble runs
-  (`agents/analysis_agent.py`)
-- Named human alert owner (`config.py: ALERT_OWNER`)
-- Real RAGAS evaluation works end-to-end now (see "Real RAGAS
-  evaluation" above), and CI runs it as a dedicated `ragas-score` job
-  using `requirements-ragas.txt` — but its actual scores are currently
-  below threshold (0.778/0.473/0.0 vs. 0.80), so CI will fail on this
-  step until answer quality improves, not because the eval itself is
-  broken
-- No `ruff` lint step in CI yet, despite `pyproject.toml` configuring it
-- CI has never actually run against a real `GROQ_API_KEY` secret yet —
-  the repo now has git history and is pushed, but the GitHub Actions
-  secret still needs to be configured before a push will produce a
-  real (non-immediately-failing) CI run
-- Knowledge graph currently has one entry (Kerala → ERA5) that matches
-  local disk contents rather than scientific reality — a design
-  decision flagged for review in `docs/maintenance-round-1-opus5.md`
+The design-vs-ready distinction above, made specific. See
+`MAINTENANCE.md` for the full history of what's already been found and
+fixed across four maintenance rounds — this list is what's still open:
+
+- **No API authentication** — anyone who can reach the FastAPI endpoint
+  can use it.
+- **Answer quality is below its own gate** — real RAGAS scores are
+  0.778 faithfulness / 0.473 relevancy against a 0.80 target (see "Real
+  RAGAS evaluation" above). This needs prompt/retrieval tuning, not a
+  bug fix.
+- **Never load-tested** — no concurrent-user testing has been done.
+- **CI has never completed a real run** — the repo has git history and
+  is pushed, but the `GROQ_API_KEY` GitHub Actions secret still needs to
+  be configured before a push produces a real (non-immediately-failing)
+  CI run.
+- **One reviewed-and-accepted scientific trade-off**: the knowledge
+  graph's Kerala entry uses ERA5 (historical data) under a scenario
+  label it doesn't strictly represent — a deliberate, documented
+  decision (see Data status above and `MAINTENANCE.md` backlog item 1),
+  not an oversight.
+- **Named human alert owner** — `config.py: ALERT_OWNER` is a
+  placeholder; this is a business decision, not a code task.
+- Future feature work, not yet started: compound hazard queries (e.g.
+  "flood AND heat risk for the UK"), regulatory PDF export
+  (`observability/audit_logger.py`), uncertainty quantification across
+  ensemble runs (`agents/analysis_agent.py`).

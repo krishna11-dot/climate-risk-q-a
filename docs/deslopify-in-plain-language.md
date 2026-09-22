@@ -132,13 +132,13 @@ Neither is urgent. Both are reasonable to leave for a future round.
 
 ---
 
-## A note on a second, different podcast episode
+## A note on a second, different source discussed alongside this one
 
-A second podcast episode was shared alongside this one, about a
-completely different topic: a workflow for **starting a brand-new**
+A second piece of material was discussed alongside this document, about
+a completely different topic: a workflow for **starting a brand-new**
 project with an AI coding agent (talking through the idea, picking a
 tech stack, planning architecture — all before writing code). That's
 not what a maintenance round is for, since this project already exists
 and isn't being started from scratch. If a comparison against that
-episode's advice would be useful too, that's a separate, explicit check
+material's advice would be useful too, that's a separate, explicit check
 worth doing on its own — just say so.

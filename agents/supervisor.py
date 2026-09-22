@@ -105,7 +105,7 @@ async def _run_direct_llm(state: ClimateRiskState) -> ClimateRiskState:
         Updated state with final_answer set, no agents/guardrails involved
         beyond input validation.
     """
-    answer, cost = await call_llm(
+    answer, cost, llm_unavailable = await call_llm(
         model=config.SUPERVISOR_MODEL,
         messages=[{"role": "user", "content": state.user_query}],
         # Groq's free tier enforces a hard ~1000 output-token cap per
@@ -113,8 +113,12 @@ async def _run_direct_llm(state: ClimateRiskState) -> ClimateRiskState:
         max_tokens=900,
     )
     state.litellm_cost_usd += cost
+    state.llm_unavailable = llm_unavailable
     state.final_answer = answer
-    state.groundedness_score = 1.0  # No retrieval claim made; nothing to ground.
+    # A total LLM failure isn't "nothing to ground" — it's zero content
+    # produced at all. Scoring it 1.0 would misreport an outage as a
+    # perfect answer in the audit trail.
+    state.groundedness_score = 0.0 if llm_unavailable else 1.0
     return state
 
 
@@ -152,7 +156,7 @@ async def _combine_results(state: ClimateRiskState) -> str:
         f"Question: {state.user_query}\n\n{context_text}"
     )
 
-    answer, cost = await call_llm(
+    answer, cost, llm_unavailable = await call_llm(
         model=config.SUPERVISOR_MODEL,
         messages=[{"role": "user", "content": prompt}],
         # SUPERVISOR_MODEL is a reasoning model that emits a visible
@@ -163,6 +167,7 @@ async def _combine_results(state: ClimateRiskState) -> str:
         max_tokens=900,
     )
     state.litellm_cost_usd += cost
+    state.llm_unavailable = state.llm_unavailable or llm_unavailable
     return answer
 
 
@@ -183,6 +188,11 @@ def _estimate_faithfulness(state: ClimateRiskState) -> float:
     Returns:
         A score in [0, 1].
     """
+    if state.llm_unavailable:
+        # Evidence may well have been retrieved, but the LLM that would
+        # have turned it into an answer never ran — scoring this on
+        # evidence presence alone would call a total outage "grounded."
+        return 0.0
     has_rag = bool(state.rag_results)
     has_kg = bool(state.kg_results and state.kg_results.get("found"))
     has_analysis = bool(state.analysis_results and state.analysis_results.get("success"))
@@ -289,9 +299,15 @@ async def run_supervisor(state: ClimateRiskState) -> ClimateRiskState:
         rag_spend = rag_state.litellm_cost_usd - cost_before
         analysis_spend = analysis_state.litellm_cost_usd - cost_before
         state.litellm_cost_usd = cost_before + rag_spend + analysis_spend
+        state.llm_unavailable = (
+            state.llm_unavailable
+            or rag_state.llm_unavailable
+            or analysis_state.llm_unavailable
+        )
     else:
         rag_state = await rag_task
         state.rag_results = rag_state.rag_results
+        state.llm_unavailable = state.llm_unavailable or rag_state.llm_unavailable
         state.litellm_cost_usd = rag_state.litellm_cost_usd
 
     # STEP 3: combine results.
@@ -334,6 +350,15 @@ async def run_supervisor(state: ClimateRiskState) -> ClimateRiskState:
         "explainable_to_regulator": True,
         "context_compacted": state.context_compacted,
         "region": state.kg_results.get("region") if state.kg_results else None,
+        # Distinct from coverage_gap: this means the LLM layer itself was
+        # down (both primary and fallback model calls failed), not that
+        # the system correctly found no evidence. See graph/state.py's
+        # llm_unavailable docstring and MAINTENANCE.md for why conflating
+        # the two with a normal refusal hides real outages from
+        # monitoring — evaluation/online_monitor.py alerts on this
+        # immediately, unlike the faithfulness-drift check which averages
+        # over a window.
+        "llm_unavailable": state.llm_unavailable,
     }
 
     # TODO (future iteration - compound hazard): detect queries like

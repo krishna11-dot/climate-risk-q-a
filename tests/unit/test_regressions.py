@@ -203,3 +203,43 @@ def test_scenarios_and_acronyms_are_not_dataset_citations(
 
     assert verified == {}
     assert filtered == text
+
+
+# ---------------------------------------------------------------------------
+# Bug 5 (2026-09-22): a total LLM failure (both primary and fallback model
+# calls failing) produced the exact same downstream shape as a correct
+# "insufficient grounding" refusal — an empty final_answer with nothing to
+# tell them apart in the audit record. That let a real Groq model-rename
+# outage go silently unnoticed for days, since it looked statistically
+# identical to the constantly-occurring, entirely normal case of asking
+# about a region with no ingested data.
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_faithfulness_reports_zero_on_llm_outage() -> None:
+    """Even with real retrieved evidence, a total LLM failure must score
+    0.0, not a positive "evidence was present" score — the answer is
+    empty regardless of what was retrieved.
+    """
+    state = ClimateRiskState(
+        user_query="heat risk UK",
+        rag_results=[{"content": "real evidence"}],
+        kg_results={"found": True},
+        llm_unavailable=True,
+    )
+    assert supervisor._estimate_faithfulness(state) == 0.0
+
+
+def test_llm_outage_is_distinguishable_from_coverage_gap() -> None:
+    """These two must never collapse into the same signal: coverage_gap
+    means the system correctly found no evidence (expected, benign,
+    happens constantly for unsupported regions); llm_unavailable means
+    the LLM layer itself was down (an infrastructure failure that should
+    page someone). A monitor checking only one of these would miss real
+    outages that look identical to normal refusals otherwise.
+    """
+    refusal = ClimateRiskState(user_query="flood risk Mumbai", coverage_gap=True)
+    outage = ClimateRiskState(user_query="heat risk UK", llm_unavailable=True)
+
+    assert refusal.llm_unavailable is False
+    assert outage.coverage_gap is False

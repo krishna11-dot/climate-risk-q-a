@@ -74,7 +74,7 @@ async def call_llm(
     messages: list[dict[str, str]],
     max_tokens: int = 1000,
     **kwargs: Any,
-) -> tuple[str, float]:
+) -> tuple[str, float, bool]:
     """Calls an LLM via LiteLLM with automatic fallback and cost tracking.
 
     Args:
@@ -84,10 +84,14 @@ async def call_llm(
         **kwargs: Additional keyword args forwarded to litellm.acompletion.
 
     Returns:
-        Tuple of (response_text, cost_usd). Both the text and cost are
-        empty/zero if the primary call AND the fallback both fail — the
-        pipeline is expected to treat empty evidence as ungrounded and
-        respond via the groundedness guardrail rather than crash.
+        Tuple of (response_text, cost_usd, llm_unavailable). Text and
+        cost are empty/zero and llm_unavailable is True if the primary
+        call AND the fallback both fail — the pipeline is expected to
+        treat empty evidence as ungrounded and respond via the
+        groundedness guardrail rather than crash. Callers must propagate
+        llm_unavailable onto state so it reaches the audit record
+        distinctly from a legitimate coverage_gap refusal (see
+        graph/state.py's docstring for why that distinction matters).
     """
     user_specified_effort = kwargs.pop("reasoning_effort", None)
 
@@ -121,7 +125,7 @@ async def call_llm(
             logger.error(
                 "Fallback model %s also failed: %s", config.LITELLM_FALLBACK_MODEL, fallback_exc
             )
-            return "", 0.0
+            return "", 0.0, True
 
     text = _strip_reasoning(response.choices[0].message.content or "")
     try:
@@ -129,4 +133,4 @@ async def call_llm(
     except Exception:  # noqa: BLE001 - cost tracking is best-effort
         cost = 0.0
 
-    return text, cost
+    return text, cost, False

@@ -251,10 +251,10 @@ Getting there surfaced two real, unrelated bugs, both now fixed:
    on a fallback failure instead of raising) was doing its job of not
    crashing — but it meant every query was quietly returning a blank
    answer, with no visible error unless you went and read the logs by
-   hand. Fixed by updating `config.py`'s model defaults. **Not yet
-   fixed:** there's still no alerting that distinguishes "both models
-   failed" from a normal "insufficient grounding" refusal — they look
-   identical in the audit trail today.
+   hand. Fixed by updating `config.py`'s model defaults. **The missing
+   alerting this gap left behind — no way to distinguish "both models
+   failed" from a normal "insufficient grounding" refusal — is now fixed
+   too, see Round 4 below.**
 2. **The RAGAS judge's default `max_tokens` (1024) was too small** for
    faithfulness's claim-extraction JSON against real multi-chunk
    contexts, truncating mid-generation and silently scoring as `nan`
@@ -310,6 +310,45 @@ never stored past the loop iteration it's defined in). Also found and
 removed `ragas`/`datasets` sitting in `requirements.txt`, contradicting
 the entire point of the `.venv-ragas` isolation from Round 2. `ruff
 check .` now runs as its own CI step.
+
+---
+
+## Round 4 — 2026-09-22
+
+### Operational reliability: telling a real outage apart from a correct refusal
+
+The single biggest gap Lan Chu's metrics framework pointed at (see
+`docs/engineering-practices-review.md`) was operational reliability —
+error-rate tracking on failed LLM calls. This is exactly the category
+that would have caught the Round 2 outage (Groq silently renaming a
+model, breaking every LLM call) automatically instead of it being found
+by hand.
+
+**Fixed:** `call_llm()` now returns a third value, `llm_unavailable`,
+set only when both the primary and fallback model calls fail. This is
+threaded through every call site (`supervisor.py`, `kg_agent.py`,
+`analysis_agent.py`), onto `ClimateRiskState`, into the audit record,
+through a new DB column (`db/migrations/003_add_llm_unavailable.sql`),
+and into a new `check_llm_outage()` check in
+`evaluation/online_monitor.py` that alerts on even a single occurrence
+in a 15-minute window — deliberately not averaged like the faithfulness
+drift check, since one silent total outage is already one too many.
+Also fixed `_estimate_faithfulness()` to score 0.0 on an LLM outage
+even when real evidence was retrieved, instead of a misleadingly
+positive "evidence was present" score for an answer that's actually
+empty. `online_monitor.py` also had no runnable entrypoint at all
+despite `README.md` claiming it "runs every hour" — added one
+(`run_all_checks()` + a `__main__` guard); actually scheduling it
+hourly is still a deployment step, not something this file can do
+alone.
+
+**An honest note on doing this work:** while adding the regression test
+for this fix, an edit briefly mis-diagnosed a real, correct assertion
+in an existing test (`test_scenarios_and_acronyms_are_not_dataset_citations`)
+as leftover dangling cruft and deleted it. Checking `git log -p` on the
+file before concluding it was actually junk caught the mistake and it
+was restored. Recorded here because the entire point of this log is not
+hiding mistakes just because they were caught before shipping.
 
 ---
 

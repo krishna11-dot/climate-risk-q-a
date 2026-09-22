@@ -62,14 +62,18 @@ def _fallback_regex_extract(query: str, schema: dict) -> KGExtraction:
     return KGExtraction(hazard=hazard, region=region, scenario=scenario)
 
 
-async def _extract_parameters(query: str) -> tuple[KGExtraction, float]:
+async def _extract_parameters(query: str) -> tuple[KGExtraction, float, bool]:
     """Extracts hazard/region/scenario via LLM, with a regex fallback.
 
     Args:
         query: The user's natural-language query.
 
     Returns:
-        Tuple of (KGExtraction, litellm_cost_usd).
+        Tuple of (KGExtraction, litellm_cost_usd, llm_unavailable). Note
+        that llm_unavailable=True doesn't necessarily mean extraction
+        failed — the regex fallback below can still succeed in that
+        degraded mode — but it's tracked anyway since running on the
+        regex fallback is worse than the LLM path and worth surfacing.
     """
     schema = load_schema()
     prompt = _EXTRACTION_PROMPT.format(
@@ -79,7 +83,7 @@ async def _extract_parameters(query: str) -> tuple[KGExtraction, float]:
         query=query,
     )
 
-    text, cost = await call_llm(
+    text, cost, llm_unavailable = await call_llm(
         model=config.KG_AGENT_MODEL,
         messages=[{"role": "user", "content": prompt}],
         max_tokens=200,
@@ -89,11 +93,11 @@ async def _extract_parameters(query: str) -> tuple[KGExtraction, float]:
     if match:
         try:
             data = json.loads(match.group(0))
-            return KGExtraction(**data), cost
+            return KGExtraction(**data), cost, llm_unavailable
         except (json.JSONDecodeError, TypeError, ValueError):
             pass
 
-    return _fallback_regex_extract(query, schema), cost
+    return _fallback_regex_extract(query, schema), cost, llm_unavailable
 
 
 @traceable(name="kg_agent")
@@ -107,8 +111,9 @@ async def run_kg_agent(state: ClimateRiskState) -> ClimateRiskState:
     Returns:
         Updated state with kg_results, sql_filter, and coverage_gap set.
     """
-    extraction, cost = await _extract_parameters(state.user_query)
+    extraction, cost, llm_unavailable = await _extract_parameters(state.user_query)
     state.litellm_cost_usd += cost
+    state.llm_unavailable = state.llm_unavailable or llm_unavailable
 
     if not extraction.hazard or not extraction.region:
         state.coverage_gap = True

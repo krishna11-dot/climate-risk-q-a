@@ -40,6 +40,14 @@ class ClimateRiskState(BaseModel):
         context_size_tokens: Running token count of accumulated context.
         context_compacted: True if context was summarised/cleared mid-run.
         litellm_cost_usd: Cumulative LiteLLM-reported cost for this query.
+        llm_unavailable: True if a call_llm() invocation exhausted both
+            the primary and fallback model without success. Distinct
+            from coverage_gap: coverage_gap means "we correctly found no
+            evidence," this means "the LLM layer itself was down" — an
+            infrastructure failure, not an intentional refusal. Merging
+            the two in monitoring hides real outages, since both produce
+            an empty final_answer and look identical downstream unless
+            this flag is checked separately (see MAINTENANCE.md).
     """
 
     user_query: str
@@ -61,3 +69,4 @@ class ClimateRiskState(BaseModel):
     context_size_tokens: int = 0
     context_compacted: bool = False
     litellm_cost_usd: float = 0.0
+    llm_unavailable: bool = False
