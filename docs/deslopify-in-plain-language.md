@@ -115,30 +115,6 @@ This round closed out several items that had been written down as
 
 ---
 
-## What's still left, honestly
 
-Two things are genuinely not done yet, and there's no benefit in
-pretending otherwise:
 
-- **Nobody has gone through every single automated test one at a time**
-  asking "does this actually check something real?" Every fix so far
-  came from finding a bad test by accident while doing something else.
-- **Nobody has stepped back and asked, "if we built this whole project
-  again today, knowing what we know now, would we design it the same
-  way?"** That's a deliberate, bigger exercise, separate from fixing
-  individual bugs, and it hasn't been done.
 
-Neither is urgent. Both are reasonable to leave for a future round.
-
----
-
-## A note on a second, different source discussed alongside this one
-
-A second piece of material was discussed alongside this document, about
-a completely different topic: a workflow for **starting a brand-new**
-project with an AI coding agent (talking through the idea, picking a
-tech stack, planning architecture — all before writing code). That's
-not what a maintenance round is for, since this project already exists
-and isn't being started from scratch. If a comparison against that
-material's advice would be useful too, that's a separate, explicit check
-worth doing on its own — just say so.
