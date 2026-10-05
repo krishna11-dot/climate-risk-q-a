@@ -1,0 +1,59 @@
+{
+  "levels": [
+    {
+      "concurrency": 1,
+      "requests": 16,
+      "wall_s": 72.99,
+      "succeeded": 10,
+      "failed": 6,
+      "throughput_rps": 0.219,
+      "latency_s": {
+        "min": 0.02,
+        "p50": 4.23,
+        "p95": 10.78,
+        "p99": 10.78,
+        "max": 10.78,
+        "mean": 4.56
+      },
+      "failures_by_type": {
+        "llm_unavailable_both_models_failed": 6
+      },
+      "answer_classes": {
+        "answered_with_stripped_citation": 3,
+        "failed_llm_unavailable": 6,
+        "refused_coverage_gap": 2,
+        "blocked_tier_1": 2,
+        "clarification_requested": 2,
+        "answered": 1
+      }
+    },
+    {
+      "concurrency": 16,
+      "requests": 16,
+      "wall_s": 23.17,
+      "succeeded": 7,
+      "failed": 9,
+      "throughput_rps": 0.691,
+      "latency_s": {
+        "min": 0.26,
+        "p50": 17.47,
+        "p95": 23.16,
+        "p99": 23.16,
+        "max": 23.16,
+        "mean": 12.87
+      },
+      "failures_by_type": {
+        "llm_unavailable_both_models_failed": 9
+      },
+      "answer_classes": {
+        "answered_with_stripped_citation": 1,
+        "failed_llm_unavailable": 9,
+        "refused_coverage_gap": 2,
+        "blocked_tier_1": 2,
+        "clarification_requested": 2
+      }
+    }
+  ],
+  "total_requests": 32,
+  "total_failed": 15
+}

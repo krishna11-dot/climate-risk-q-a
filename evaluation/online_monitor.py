@@ -18,6 +18,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
+from pathlib import Path
+
+# Allow running this file directly (`python evaluation/online_monitor.py`)
+# by putting the project root on sys.path, since Python only adds the
+# script's own directory by default. README.md has documented that exact
+# command since this module was written, and it failed with
+# "ModuleNotFoundError: No module named 'config'" every time — the
+# sibling scripts (rag/ingest.py, red_team_suite.py,
+# score_eval_records.py, generate_eval_records.py) all carry this
+# bootstrap and this one did not. See MAINTENANCE.md Round 6, finding 5.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from sqlalchemy import text
 

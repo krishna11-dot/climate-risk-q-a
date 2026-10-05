@@ -1,0 +1,126 @@
+{
+  "levels": [
+    {
+      "concurrency": 1,
+      "requests": 16,
+      "wall_s": 63.02,
+      "succeeded": 16,
+      "failed": 0,
+      "throughput_rps": 0.254,
+      "latency_s": {
+        "min": 0.01,
+        "p50": 4.27,
+        "p95": 8.39,
+        "p99": 8.39,
+        "max": 8.39,
+        "mean": 3.94
+      },
+      "failures_by_type": {},
+      "answer_classes": {
+        "answered": 3,
+        "answered_with_stripped_citation": 1,
+        "refused_insufficient_grounding": 6,
+        "refused_coverage_gap": 2,
+        "blocked_tier_1": 2,
+        "clarification_requested": 2
+      }
+    },
+    {
+      "concurrency": 2,
+      "requests": 16,
+      "wall_s": 39.68,
+      "succeeded": 16,
+      "failed": 0,
+      "throughput_rps": 0.403,
+      "latency_s": {
+        "min": 0.01,
+        "p50": 5.12,
+        "p95": 10.1,
+        "p99": 10.1,
+        "max": 10.1,
+        "mean": 4.95
+      },
+      "failures_by_type": {},
+      "answer_classes": {
+        "refused_insufficient_grounding": 9,
+        "answered_with_stripped_citation": 1,
+        "refused_coverage_gap": 2,
+        "blocked_tier_1": 2,
+        "clarification_requested": 2
+      }
+    },
+    {
+      "concurrency": 4,
+      "requests": 16,
+      "wall_s": 32.69,
+      "succeeded": 16,
+      "failed": 0,
+      "throughput_rps": 0.49,
+      "latency_s": {
+        "min": 0.01,
+        "p50": 7.83,
+        "p95": 20.68,
+        "p99": 20.68,
+        "max": 20.68,
+        "mean": 7.41
+      },
+      "failures_by_type": {},
+      "answer_classes": {
+        "answered": 1,
+        "refused_insufficient_grounding": 9,
+        "refused_coverage_gap": 2,
+        "blocked_tier_1": 2,
+        "clarification_requested": 2
+      }
+    },
+    {
+      "concurrency": 8,
+      "requests": 16,
+      "wall_s": 27.26,
+      "succeeded": 16,
+      "failed": 0,
+      "throughput_rps": 0.587,
+      "latency_s": {
+        "min": 0.01,
+        "p50": 7.4,
+        "p95": 23.72,
+        "p99": 23.72,
+        "max": 23.72,
+        "mean": 11.93
+      },
+      "failures_by_type": {},
+      "answer_classes": {
+        "refused_insufficient_grounding": 9,
+        "refused_coverage_gap": 2,
+        "blocked_tier_1": 2,
+        "clarification_requested": 2,
+        "answered_with_stripped_citation": 1
+      }
+    },
+    {
+      "concurrency": 16,
+      "requests": 16,
+      "wall_s": 23.07,
+      "succeeded": 16,
+      "failed": 0,
+      "throughput_rps": 0.694,
+      "latency_s": {
+        "min": 0.12,
+        "p50": 19.43,
+        "p95": 23.06,
+        "p99": 23.06,
+        "max": 23.06,
+        "mean": 13.89
+      },
+      "failures_by_type": {},
+      "answer_classes": {
+        "refused_insufficient_grounding": 10,
+        "refused_coverage_gap": 2,
+        "blocked_tier_1": 2,
+        "clarification_requested": 2
+      }
+    }
+  ],
+  "total_requests": 80,
+  "total_failed": 0
+}

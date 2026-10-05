@@ -86,6 +86,14 @@ async def query(request: QueryRequest) -> dict:
         "groundedness_score": state.groundedness_score,
         "litellm_cost_usd": state.litellm_cost_usd,
         "trace_id": state.trace_id,
+        # Exposed so a caller can tell an infrastructure outage apart
+        # from a legitimate "not enough evidence" refusal. Both produce
+        # an HTTP 200 with no answer, so without this field they are
+        # indistinguishable from outside — which is why a load test
+        # reported "0 failures" through a run in which 70 of 91 queries
+        # had both the primary and fallback model fail. See
+        # MAINTENANCE.md Round 6, finding 3.
+        "llm_unavailable": state.llm_unavailable,
     }
 
 

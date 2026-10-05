@@ -38,6 +38,26 @@ _INSUFFICIENT_GROUNDING_MESSAGE = (
     "returned rather than risking a low-quality or ungrounded response."
 )
 
+# Deliberately says nothing about the evidence. Until 2026-10-05 an LLM
+# outage returned _INSUFFICIENT_GROUNDING_MESSAGE, because a failed
+# call_llm() produces no text and therefore scores 0.0 faithfulness —
+# which told the user the *climate record* was too thin to answer when
+# the real event was that both the primary and fallback models failed.
+# Measured at 70 of 91 queries under concurrent load. For a system whose
+# whole claim is answers traceable to a source, asserting something false
+# about the source is the worst available failure, so this is now a
+# separate message on a separate branch. See MAINTENANCE.md Round 6,
+# finding 2.
+_LLM_UNAVAILABLE_MESSAGE = (
+    "No answer was generated: the language model service was unavailable "
+    "(both the primary and fallback models failed). This is a system "
+    "failure on our side, NOT a judgement about the climate evidence — "
+    "the underlying data may be perfectly adequate and was not assessed. "
+    "Please retry. If this persists, the system owner should check the "
+    "LLM provider status and rate limits before any conclusion is drawn "
+    "about data coverage."
+)
+
 
 @dataclass
 class OutputFilterResult:
@@ -74,12 +94,34 @@ def _alphabetic_stem(token: str) -> str:
     return match.group(0).upper() if match else ""
 
 
+# Emissions-scenario naming families that are legitimate climate
+# vocabulary but are NOT datasets and must never be citation-controlled.
+#
+# `SSP` is derivable from schema.json's scenario list (the stem of
+# "SSP5-8.5"), and is derived rather than hardcoded below. `RCP` is not
+# in the schema at all, yet it is the vocabulary UKCP18's own reports are
+# written in — which is exactly how this defect surfaced, on the one
+# corpus this project has actually ingested.
+#
+# Listing RCP here deliberately does NOT assert that any RCP pathway is
+# equivalent to any SSP pathway. That equivalence is a scientific
+# judgement for the project owner, tracked separately; this set only
+# says "these tokens are scenario vocabulary, not dataset claims," which
+# is true regardless of how the pathways map to each other.
+_SCENARIO_FAMILIES: frozenset[str] = frozenset({"RCP", "SSP"})
+
+
 def _kg_vocabulary() -> set[str]:
     """Every term the knowledge graph legitimately knows about.
 
     Hazards, variables, scenarios and regions are valid things for an
     answer to name — only *datasets* are subject to citation control —
     so they must not be mistaken for unverified dataset citations.
+
+    Includes the bare scenario-family acronyms (e.g. `SSP` from
+    `SSP5-8.5`, plus `RCP`) as well as the full labels. Without them a
+    phrase like "SSP projections" was read as a dataset citation, failed
+    verification, and was stripped from the answer.
 
     Returns:
         Upper-cased set of all KG vocabulary terms.
@@ -88,7 +130,36 @@ def _kg_vocabulary() -> set[str]:
     vocabulary: set[str] = set()
     for key in ("hazards", "variables", "scenarios", "regions", "datasets"):
         vocabulary.update(str(term).upper() for term in schema.get(key, []))
+
+    # Bare family acronyms derived from the full scenario labels, so a
+    # new scenario added to schema.json needs no change here.
+    vocabulary.update(
+        stem for stem in (_alphabetic_stem(str(s)) for s in schema.get("scenarios", []))
+        if stem
+    )
+    vocabulary.update(_SCENARIO_FAMILIES)
     return vocabulary
+
+
+def _scenario_stems() -> set[str]:
+    """Alphabetic prefixes of every known emissions-scenario family.
+
+    Used to recognise *unlisted* members of a known family. Adding the
+    bare acronym `RCP` to the vocabulary is not sufficient on its own:
+    `RCP8.5` is a distinct token, is absent from schema.json, and shares
+    no stem with any dataset — so without this it still reaches the
+    "presented as a source" check and gets stripped on UKCP18's own
+    phrasing ("the RCP8.5 projections").
+
+    Returns:
+        Upper-cased set of scenario-family stems, e.g. {"SSP", "RCP"}.
+    """
+    schema = load_schema()
+    stems = {
+        stem for stem in (_alphabetic_stem(str(s)) for s in schema.get("scenarios", []))
+        if stem
+    }
+    return stems | set(_SCENARIO_FAMILIES)
 
 
 def _is_presented_as_a_source(text_: str, token: str) -> bool:
@@ -132,6 +203,7 @@ def _extract_candidate_dataset_mentions(text_: str, known_datasets: list[str]) -
     known_upper = {d.upper() for d in known_datasets}
     known_stems = {_alphabetic_stem(d) for d in known_datasets}
     vocabulary = _kg_vocabulary()
+    scenario_stems = _scenario_stems()
 
     candidates: list[str] = []
     for token in _DATASET_SHAPED_RE.findall(text_):
@@ -144,6 +216,15 @@ def _extract_candidate_dataset_mentions(text_: str, known_datasets: list[str]) -
             continue
         if token_upper in vocabulary:
             # A scenario/region/hazard the KG knows — not a dataset claim.
+            continue
+        if _alphabetic_stem(token) in scenario_stems:
+            # An emissions scenario from a known family, listed or not
+            # (RCP8.5, RCP2.6, SSP3-7.0). Scenario labels are never
+            # dataset citations, so they are not citation-controlled.
+            # Checked before the dataset-stem test below, which is
+            # unreachable for these anyway, and before the
+            # "presented as a source" test, which these DO trip on
+            # UKCP18's natural phrasing.
             continue
         if _alphabetic_stem(token) in known_stems:
             # Same family as a real dataset but not the real one.
@@ -178,8 +259,19 @@ def verify_and_filter_datasets(
         verified = verify_dataset_in_kg(dataset)
         verification[dataset] = verified
         if not verified:
-            filtered_text = filtered_text.replace(
-                dataset, "[UNVERIFIED DATASET REMOVED]"
+            # Word-boundary substitution, NOT str.replace. A plain
+            # str.replace is substring-based, so removing a short token
+            # rewrote every longer token containing it: flagging "SSP"
+            # turned "SSP5-8.5" into "[UNVERIFIED DATASET REMOVED]5-8.5"
+            # and "SSPs" into "[UNVERIFIED DATASET REMOVED]s" — in a live
+            # answer to a question that was *about* SSP5-8.5. The bug is
+            # independent of climate vocabulary: any flagged short token
+            # would take valid longer tokens with it. See MAINTENANCE.md
+            # Round 6, finding 1.
+            filtered_text = re.sub(
+                rf"\b{re.escape(dataset)}\b",
+                "[UNVERIFIED DATASET REMOVED]",
+                filtered_text,
             )
 
     return filtered_text, verification
@@ -203,18 +295,38 @@ def apply_output_filter(
     draft_answer: str,
     faithfulness_score: float,
     known_datasets: list[str],
+    llm_unavailable: bool = False,
 ) -> OutputFilterResult:
-    """Runs the full output filter: groundedness threshold check, then
-    dataset citation verification against the KG.
+    """Runs the full output filter: LLM-availability check, groundedness
+    threshold check, then dataset citation verification against the KG.
 
     Args:
         draft_answer: The draft answer text to filter.
         faithfulness_score: Faithfulness/groundedness score for the draft.
         known_datasets: All dataset names defined in the KG schema.
+        llm_unavailable: True if both the primary and fallback model
+            calls failed for this query. Must be checked BEFORE the
+            groundedness threshold, because an outage always scores 0.0
+            faithfulness and would otherwise be reported as a
+            "the evidence is insufficient" refusal — a false statement
+            about the data. Defaults to False so existing call sites
+            keep their previous behavior rather than silently
+            misreporting outages as grounding failures.
 
     Returns:
         An OutputFilterResult with the approved/rewritten answer.
     """
+    if llm_unavailable:
+        return OutputFilterResult(
+            approved=False,
+            final_answer=_LLM_UNAVAILABLE_MESSAGE,
+            blocked_reason=(
+                "llm_unavailable: primary and fallback model calls both "
+                "failed; this is an infrastructure failure, not a "
+                "grounding failure"
+            ),
+        )
+
     if not check_groundedness(faithfulness_score):
         return OutputFilterResult(
             approved=False,

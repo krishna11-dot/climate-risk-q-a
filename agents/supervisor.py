@@ -316,7 +316,17 @@ async def run_supervisor(state: ClimateRiskState) -> ClimateRiskState:
     state.groundedness_score = faithfulness
 
     schema = load_schema()
-    filter_result = apply_output_filter(draft_answer, faithfulness, schema["datasets"])
+    # llm_unavailable must reach the output filter: an outage scores 0.0
+    # faithfulness, so without this the filter reported it as an
+    # "insufficient grounding" refusal — telling the user the climate
+    # evidence was inadequate when the evidence was never read. See
+    # MAINTENANCE.md Round 6, finding 2.
+    filter_result = apply_output_filter(
+        draft_answer,
+        faithfulness,
+        schema["datasets"],
+        llm_unavailable=state.llm_unavailable,
+    )
     state.final_answer = filter_result.final_answer
 
     state.audit_record = {
