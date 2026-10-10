@@ -65,6 +65,114 @@ incident — the outage check, the faithfulness-drift check, and the
 per-region segment check. Regulatory question Q3 is now verified against
 an actual incident rather than a simulated one.
 
+## How it works, and why it's built this way
+
+Written for a non-technical reader. Every technical word is explained in
+**bold** the first time it appears. The engineering detail is further
+down under "SQL architecture" and "Anti-hallucination stack" — this
+section is the *reasoning*, not the implementation.
+
+### The journey of one question
+
+Someone asks: *"What is the heat risk for the UK under SSP5-8.5?"*
+
+```
+          ┌─────────────────────────────────────────────┐
+  QUESTION│                                             │
+     │    │  1. Doorman    Is this a climate question?  │
+     ▼    │                Any attempt to manipulate?   │
+  ┌───────┴──┐                                          │
+  │ 2. Permission check   Is this one we're allowed     │
+  │                       to answer at all?             │
+  └───────┬──┘                                          │
+          │                                             │
+  ┌───────▼──┐  3. Rulebook   Which approved dataset    │
+  │          │                covers this region +      │
+  │          │                hazard + scenario?        │
+  └───────┬──┘                                          │
+          │         ── no match? stop here, say so ──   │
+  ┌───────▼──┐  4. Librarian  Find the 5 most relevant  │
+  │          │                pages from real documents  │
+  └───────┬──┘                                          │
+  ┌───────▼──┐  5. Writer     Draft an answer using     │
+  │          │                ONLY those pages          │
+  └───────┬──┘                                          │
+  ┌───────▼──┐  6. Fact-check Strip any data source     │
+  │          │                not on the approved list. │
+  │          │                Thin evidence? Refuse.    │
+  └───────┬──┘                                          │
+          │                                             │
+  ┌───────▼──┐  7. Logbook    Record everything,        │
+  │          │                permanently               │
+  └───────┬──┘                                          │
+  ANSWER   ▼                                            │
+          └─────────────────────────────────────────────┘
+```
+
+In this real example: step 3 picked **UKCP18** (the UK Met Office's
+official climate projections), step 4 found 5 actual pages from those
+reports, and step 7 recorded which pages were used — so the answer can
+be checked against its source months later.
+
+### Why each piece exists
+
+The whole design follows from one requirement: **the user must be able
+to check the answer against a source.** Each piece below is there
+because of a specific way that requirement can fail.
+
+| The piece | Why it exists | What would happen without it |
+|---|---|---|
+| **The rulebook** (an *approved list* of valid dataset + region + scenario combinations) | The single worst failure for this product is inventing a scientific data source that doesn't exist. An approved list makes that **structurally impossible** rather than merely discouraged | The AI could cite "CMIP7" or "SuperClimate9000" — plausible-sounding, entirely fictional. A planner would have no way to tell |
+| **Answering only from retrieved pages** | A sentence the AI produces from memory has no source to check. A sentence drawn from page 64 of a named report does | Answers would be unverifiable by construction — the exact thing a regulator rejects |
+| **Four separate safety layers**, not one | Each catches a different failure, and we learned the hard way that a single layer can be silently broken for months. In Round 1 the citation check turned out to be decorative — it could only recognise names that were *already* valid, so it could never catch a fake one | One quiet bug removes all protection, with no outward sign |
+| **Hybrid search** — meaning-based *and* exact-keyword, then re-ranked | Meaning-based search misses exact codes like `SSP5-8.5` or `CMIP6`. Keyword search misses paraphrase ("hotter summers" vs "elevated summer temperature"). Climate questions need both | Either missed precise technical terms, or missed relevant pages worded differently |
+| **Permission tiers** | Some questions must never be answered automatically *regardless of how good the evidence is* — "should I buy insurance for this property?" is financial advice. That's a legal boundary, not a quality judgement | The system would give regulated advice it isn't licensed to give, however well-sourced |
+| **A permanent record of every single query** | A regulator asks "why did you tell them that?" months afterwards. You cannot reconstruct which pages were used after the fact — it has to be captured at the time | The audit question becomes unanswerable, which defeats the point of the product |
+| **Refusing instead of guessing** | For this user an unverifiable answer is *worse* than no answer, because it's actionable and wrong at the same time | Confident guesses on planning decisions with real consequences |
+| **Separate specialists** (one finds the rulebook path, one searches documents, one does calculations) | When something breaks you can see *which* step broke. A single all-in-one component fails opaquely | Failures become untraceable — you'd know the answer was bad but not why |
+| **Monitoring that only raises alarms and never self-corrects** | A system that quietly fixes itself cannot be audited, and nobody learns what went wrong. A named human must decide | Silent self-adjustment — the opposite of an audit trail |
+| **An emergency stop that is re-read on every request** | During an incident, "restart the server to apply it" is too slow. This was a real bug: the switch only worked after a restart, which hid the problem | The documented emergency procedure would appear to work while the system kept answering |
+
+### The design principle underneath all of it
+
+**Prefer things that are impossible over things that are forbidden.**
+
+Telling an AI "don't invent dataset names" is an instruction it may or
+may not follow. Giving it a fixed list and deleting anything not on that
+list is a *structural* guarantee — like a form with a dropdown menu
+instead of a free-text box.
+
+That's why the approved-list rulebook is the centre of the design rather
+than a carefully worded instruction.
+
+### What the architecture does *not* protect you from
+
+This matters as much as the list above, and we only learned it by
+running the system under load on 2026-10-05.
+
+**Good architecture guarantees nothing about running behaviour.** Every
+guardrail above worked exactly as designed during that test — and the
+system still spent an afternoon telling users the climate evidence was
+insufficient when the real cause was a billing limit on the AI service.
+Nothing in the design was violated. The outage was correctly detected,
+correctly recorded, and correctly alarmed. The failure was in the last
+step: the component that writes the user's message couldn't see that
+information, so it reached for the nearest honest-sounding explanation —
+and that explanation was false.
+
+Two lessons worth carrying:
+
+1. **A structural guarantee only covers what it was designed to cover.**
+   "Cannot invent a data source" was true throughout. "Will not make a
+   false statement about the evidence" was never designed in, and so it
+   wasn't true.
+2. **Architecture is checked by reading; behaviour is only checked by
+   running.** Five review rounds read this design and approved it. One
+   hour of actually serving traffic found nine defects.
+
+The full account, in the same plain language, is in
+`docs/what-we-did-in-plain-language.md`.
+
 ## Further reading
 
 - **`docs/what-we-did-in-plain-language.md`** — **start here if you
@@ -144,6 +252,9 @@ dataset combinations directly.
 
 ## SQL architecture
 
+> Engineering detail. For the plain-language version of what this does
+> and *why*, see "How it works, and why it's built this way" above.
+
 Retrieval is a four-stage hybrid pipeline, and the SQL layer is what
 makes it both fast and grounded:
 
@@ -198,6 +309,10 @@ Two honest corrections to what this section used to assert:
   and `MAINTENANCE.md` Round 6, finding 1.
 
 ## Anti-hallucination stack
+
+> Engineering detail. The plain-language reasoning for why there are
+> four independent layers rather than one is in "How it works, and why
+> it's built this way" above.
 
 Four independent techniques stack together:
 

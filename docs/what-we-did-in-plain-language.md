@@ -51,6 +51,12 @@ answers — **traceable** ones.
 
 ## 2. What we built
 
+> For the fuller version — a walkthrough of one question travelling
+> through the system, plus the *reason* each piece exists and what would
+> go wrong without it — see "How it works, and why it's built this way"
+> in `README.md`. It is written for the same reader as this document.
+
+
 A system that answers climate questions, where:
 
 - It reads real documents and quotes them. It is not allowed to answer
